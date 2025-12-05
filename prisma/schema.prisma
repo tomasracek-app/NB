@@ -1,0 +1,582 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMY
+// ============================================================================
+
+enum UserRole {
+  ADMIN
+  CLIENT
+}
+
+enum Module {
+  REVENUE
+  INVENTORY
+  LEADS
+  TELEPHONY
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentStatus {
+  MATCHED
+  UNMATCHED
+  OVERPAID
+}
+
+enum StockChangeType {
+  SYNC
+  MANUAL
+  SALE
+  RETURN
+}
+
+enum WebhookType {
+  GENERIC
+  SGTM
+  CUSTOM
+}
+
+enum LeadSource {
+  WEBHOOK
+  SGTM
+  MANUAL
+  IMPORT
+}
+
+// ============================================================================
+// CORE TABULKY
+// ============================================================================
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  role         UserRole  @default(CLIENT)
+  clientId     String?
+  client       Client?   @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  auditLogs AuditLog[]
+
+  @@index([clientId])
+  @@index([email])
+}
+
+model Client {
+  id   String @id @default(cuid())
+  name String
+  slug String @unique // URL-friendly identifikátor
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  users    User[]
+  settings ClientSettings?
+
+  // Relace na všechny moduly
+  revenueData  RevenueData[]
+  products     Product[]
+  stockChanges StockChange[]
+  leads        Lead[]
+  events       Event[]
+  webhooks     Webhook[]
+
+  // Modul Telefonie
+  teleCustomers    TeleCustomer[]
+  phoneNumbers     PhoneNumber[]
+  billingRecords   BillingRecord[]
+  invoices         Invoice[]
+  payments         Payment[]
+
+  @@index([slug])
+}
+
+model ClientSettings {
+  id       String @id @default(cuid())
+  clientId String @unique
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Explicitní pole místo JSON
+  timezone      String   @default("Europe/Prague")
+  dateFormat    String   @default("DD.MM.YYYY")
+  currency      String   @default("CZK")
+  activeModules Module[]
+
+  // Fakturační nastavení
+  companyName    String?
+  companyAddress String?
+  companyIco     String?
+  companyDic     String?
+  bankAccount    String?
+  bankIban       String?
+  invoicePrefix  String  @default("FV")
+  invoiceNextNum Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String  @id @default(cuid())
+  userId     String
+  user       User    @relation(fields: [userId], references: [id])
+  clientId   String
+  action     String // "read" | "create" | "update" | "delete"
+  resource   String // název tabulky
+  resourceId String?
+  oldValue   Json? // Původní hodnota při update/delete
+  newValue   Json? // Nová hodnota při create/update
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([userId, createdAt])
+  @@index([resource, resourceId])
+}
+
+model ImportHistory {
+  id          String   @id @default(cuid())
+  clientId    String
+  userId      String
+  module      Module
+  fileName    String
+  fileSize    Int
+  rowCount    Int
+  status      String // "pending" | "processing" | "completed" | "failed"
+  errorLog    String?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([clientId, createdAt])
+}
+
+// ============================================================================
+// MODUL OBRATY
+// ============================================================================
+
+model RevenueData {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  date        DateTime @db.Date
+  revenue     Decimal  @db.Decimal(12, 2) // Obrat
+  adSpend     Decimal  @db.Decimal(12, 2) // Spend v reklamách
+  returns     Decimal  @db.Decimal(12, 2) // Vratky
+  ordersCount Int // Počet objednávek
+  source      String? // Zdroj dat pro filtrování
+
+  // NEPOČÍTAT: profit, pno, aov - počítat dynamicky!
+  // profit = revenue - returns - adSpend
+  // pno = adSpend / revenue * 100
+  // aov = revenue / ordersCount
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, date, source]) // Unikátní kombinace
+  @@index([clientId, date])
+  @@index([date])
+}
+
+// ============================================================================
+// MODUL SKLAD
+// ============================================================================
+
+model Product {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  externalId    String // ID z feedu
+  name          String
+  sku           String?
+  price         Decimal @db.Decimal(10, 2)
+  stockQuantity Int     @default(0)
+  category      String?
+  brand         String?
+  imageUrl      String?
+  feedUrl       String? // Zdroj XML
+
+  // Důležitá pole extrahovaná z feedu (ne jako JSON!)
+  ean          String?
+  weight       Decimal?  @db.Decimal(8, 3)
+  availability String?
+
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  stockChanges StockChange[]
+
+  @@unique([clientId, externalId])
+  @@index([clientId, category])
+  @@index([clientId, brand])
+  @@index([sku])
+}
+
+model StockChange {
+  id        String          @id @default(cuid())
+  clientId  String
+  client    Client          @relation(fields: [clientId], references: [id])
+  productId String
+  product   Product         @relation(fields: [productId], references: [id])
+
+  previousQty Int
+  newQty      Int
+  changeType  StockChangeType
+  note        String?
+
+  recordedAt DateTime @default(now())
+
+  @@index([clientId, recordedAt])
+  @@index([productId, recordedAt])
+}
+
+// ============================================================================
+// MODUL LEADS
+// ============================================================================
+
+model Lead {
+  id       String     @id @default(cuid())
+  clientId String
+  client   Client     @relation(fields: [clientId], references: [id])
+
+  source LeadSource
+
+  // Click IDs - extrahované pole
+  gclid  String?
+  fbclid String?
+
+  // UTM parametry - extrahované pole
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+
+  // Kontaktní údaje
+  email String?
+  phone String?
+  name  String?
+
+  // Ostatní data jako JSON (méně důležité)
+  formData Json?
+
+  // Metadata
+  ipAddress String?
+  userAgent String?
+  pageUrl   String?
+
+  createdAt DateTime @default(now())
+
+  events Event[]
+
+  @@index([clientId, createdAt])
+  @@index([clientId, source])
+  @@index([email])
+}
+
+model Event {
+  id       String  @id @default(cuid())
+  clientId String
+  client   Client  @relation(fields: [clientId], references: [id])
+  leadId   String?
+  lead     Lead?   @relation(fields: [leadId], references: [id])
+
+  eventName String
+  eventData Json?
+
+  timestamp DateTime @default(now())
+
+  @@index([clientId, timestamp])
+  @@index([leadId])
+  @@index([eventName])
+}
+
+model Webhook {
+  id       String      @id @default(cuid())
+  clientId String
+  client   Client      @relation(fields: [clientId], references: [id])
+
+  name         String
+  token        String      @unique @default(cuid()) // Pro auth v header
+  type         WebhookType
+  fieldMapping Json? // Mapování polí
+  active       Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+}
+
+// ============================================================================
+// MODUL TELEFONIE
+// ============================================================================
+
+// Zákazník telefonních služeb (jeden zákazník = více čísel)
+model TeleCustomer {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Identifikace
+  customerNumber String // Zákaznické číslo
+  name           String
+
+  // Fakturační údaje
+  billingName    String? // Fakturační jméno (pokud jiné)
+  billingAddress String?
+  billingCity    String?
+  billingZip     String?
+  billingCountry String  @default("CZ")
+  ico            String?
+  dic            String?
+  email          String?
+  phone          String?
+
+  // Cenové podmínky
+  discountPercent Decimal @default(0) @db.Decimal(5, 2)
+  customPricing   Json? // Speciální ceny pro určité služby
+
+  // Fakturační nastavení
+  paymentTermDays Int     @default(14)
+  invoiceEmail    String? // Kam posílat faktury
+
+  note String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  phoneNumbers   PhoneNumber[]
+  billingRecords BillingRecord[]
+  invoices       Invoice[]
+
+  @@unique([clientId, customerNumber])
+  @@index([clientId])
+  @@index([name])
+}
+
+// Telefonní čísla
+model PhoneNumber {
+  id         String       @id @default(cuid())
+  clientId   String
+  client     Client       @relation(fields: [clientId], references: [id])
+  customerId String
+  customer   TeleCustomer @relation(fields: [customerId], references: [id])
+
+  number String // Telefonní číslo
+  label  String? // Popisek (např. "Hlavní linka", "Fax")
+  active Boolean @default(true)
+
+  // Tarif/balíček
+  tariffName String?
+  monthlyFee Decimal? @db.Decimal(10, 2)
+
+  activatedAt   DateTime?
+  deactivatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  billingRecords BillingRecord[]
+
+  @@unique([clientId, number])
+  @@index([customerId])
+}
+
+// Záznamy z podrobného vyúčtování
+model BillingRecord {
+  id            String       @id @default(cuid())
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id])
+  customerId    String
+  customer      TeleCustomer @relation(fields: [customerId], references: [id])
+  phoneNumberId String?
+  phoneNumber   PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
+
+  // Období
+  billingPeriod DateTime @db.Date // Měsíc vyúčtování (první den měsíce)
+
+  // Detail hovoru/služby
+  callDate     DateTime? @db.Date
+  callTime     DateTime? @db.Time
+  calledNumber String?
+  duration     Int? // Délka v sekundách
+  serviceType  String // Typ služby (hovor, SMS, data, měsíční poplatek, atd.)
+  description  String?
+
+  // Ceny
+  units           Decimal @db.Decimal(10, 3) // Jednotky (minuty, MB, ks)
+  unitPrice       Decimal @db.Decimal(10, 4) // Cena za jednotku
+  priceWithoutVat Decimal @db.Decimal(10, 2)
+  vatRate         Decimal @default(21) @db.Decimal(5, 2)
+  priceWithVat    Decimal @db.Decimal(10, 2)
+
+  // Import metadata
+  importId String? // Reference na ImportHistory
+  rawData  Json? // Původní data z importu
+
+  createdAt DateTime @default(now())
+
+  @@index([clientId, billingPeriod])
+  @@index([customerId, billingPeriod])
+  @@index([phoneNumberId, billingPeriod])
+  @@index([serviceType])
+}
+
+// Faktury
+model Invoice {
+  id         String       @id @default(cuid())
+  clientId   String
+  client     Client       @relation(fields: [clientId], references: [id])
+  customerId String
+  customer   TeleCustomer @relation(fields: [customerId], references: [id])
+
+  // Identifikace
+  invoiceNumber  String // Číslo faktury (např. FV2024001)
+  variableSymbol String // Variabilní symbol pro platbu
+
+  // Období
+  billingPeriodFrom DateTime @db.Date
+  billingPeriodTo   DateTime @db.Date
+
+  // Datumy
+  issueDate DateTime @db.Date
+  dueDate   DateTime @db.Date
+  taxDate   DateTime @db.Date // DUZP
+
+  // Částky
+  subtotal  Decimal @db.Decimal(12, 2) // Bez DPH
+  vatAmount Decimal @db.Decimal(12, 2) // DPH
+  total     Decimal @db.Decimal(12, 2) // Celkem s DPH
+
+  // Stav
+  status     InvoiceStatus @default(DRAFT)
+  paidAmount Decimal       @default(0) @db.Decimal(12, 2)
+
+  // Metadata odeslání
+  sentAt    DateTime?
+  sentTo    String? // Email kam bylo odesláno
+  sentError String? // Chyba při odesílání
+
+  // QR kód a export
+  qrPaymentData    String? // Data pro QR platbu
+  pohodaExportedAt DateTime? // Kdy bylo exportováno do Pohoda
+
+  // PDF
+  pdfUrl String? // URL uloženého PDF
+
+  note String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@unique([clientId, invoiceNumber])
+  @@index([clientId, status])
+  @@index([customerId])
+  @@index([dueDate])
+  @@index([variableSymbol])
+}
+
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description     String
+  quantity        Decimal @db.Decimal(10, 3)
+  unitPrice       Decimal @db.Decimal(10, 4)
+  vatRate         Decimal @db.Decimal(5, 2)
+  totalWithoutVat Decimal @db.Decimal(12, 2)
+  vatAmount       Decimal @db.Decimal(12, 2)
+  totalWithVat    Decimal @db.Decimal(12, 2)
+
+  sortOrder Int @default(0)
+
+  @@index([invoiceId])
+}
+
+// Platby (import z banky)
+model Payment {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+
+  // Bankovní transakce
+  transactionId String? // ID transakce z banky
+  bankAccount   String? // Protiúčet
+  amount        Decimal @db.Decimal(12, 2)
+  currency      String  @default("CZK")
+
+  // Párování
+  variableSymbol String?
+  specificSymbol String?
+  constantSymbol String?
+  message        String? // Zpráva pro příjemce
+
+  status PaymentStatus @default(UNMATCHED)
+
+  paymentDate DateTime @db.Date
+
+  // Import metadata
+  importId String?
+  rawData  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, transactionId])
+  @@index([clientId, paymentDate])
+  @@index([variableSymbol])
+  @@index([status])
+}
+
+// Fronta pro rozesílku faktur (spam resistance)
+model InvoiceEmailQueue {
+  id             String    @id @default(cuid())
+  invoiceId      String
+  recipientEmail String
+  scheduledFor   DateTime // Kdy má být odesláno
+  attempts       Int       @default(0)
+  lastAttemptAt  DateTime?
+  lastError      String?
+  sentAt         DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([scheduledFor, sentAt])
+}
