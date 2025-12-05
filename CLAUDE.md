@@ -6,37 +6,61 @@ SaaS datová platforma pro správu a vizualizaci dat pro klienty. Hostováno na 
 
 ---
 
+## Stav implementace
+
+### Dokončeno (Fáze 1)
+- [x] Next.js 16 projekt s App Router
+- [x] Prisma ORM + PostgreSQL schema (kompletní)
+- [x] NextAuth.js v5 autentizace (credentials provider)
+- [x] RBAC middleware (admin/client role)
+- [x] Základní admin layout se sidebarem
+- [x] Základní client layout se sidebarem
+- [x] CRUD API pro klienty (`/api/admin/clients`)
+- [x] Zod validátory pro klientská data
+- [x] Deployment skripty (PM2, deploy.sh)
+- [x] Database seeding (admin uživatel)
+
+### V Plánu
+- [ ] Modul Obraty (import, grafy, tabulky)
+- [ ] Modul Sklad (XML feed sync)
+- [ ] Modul Leads (webhooky, sGTM)
+- [ ] Modul Telefonie (kompletní fakturační systém)
+
+---
+
 ## Technologický stack
 
-### Frontend
-- **Next.js 14+** (App Router)
-- **TypeScript** (striktní mód, žádné `any`)
-- **Tailwind CSS** pro styling
-- **shadcn/ui** pro UI komponenty
+### Frontend (implementováno)
+- **Next.js 16** (App Router) - `next@16.0.7`
+- **React 19** - `react@19.2.0`
+- **TypeScript 5** (striktní mód, žádné `any`)
+- **Tailwind CSS 4** pro styling
+- **shadcn/ui** pro UI komponenty (button, card, badge, input, label)
+- **Lucide React** pro ikony
+
+### Backend (implementováno)
+- **Next.js API Routes**
+- **Prisma ORM 6.x** pro typově bezpečnou práci s DB
+- **PostgreSQL** databáze
+- **Zod 4** pro validaci
+
+### Autentizace (implementováno)
+- **NextAuth.js v5** (beta.30)
+- JWT session strategy
+- Role-based access control (RBAC)
+- Credentials provider s bcryptjs
+
+### Plánováno (neimplementováno)
 - **Recharts** pro grafy
 - **TanStack Table** pro pokročilé tabulky s virtualizací
 - **React Query** pro data fetching a caching
-
-### Backend
-- **Next.js API Routes**
-- **Prisma ORM** pro typově bezpečnou práci s DB
-- **PostgreSQL** databáze
-- **Redis** pro caching (volitelně)
-
-### Autentizace
-- **NextAuth.js** (Auth.js)
-- Session-based autentizace
-- Role-based access control (RBAC)
-
-### Import dat
-- **Papa Parse** pro CSV
-- **xlsx** (SheetJS) pro Excel
+- **Papa Parse** pro CSV import
+- **xlsx** (SheetJS) pro Excel import
 - **fast-xml-parser** pro XML
-
-### Fakturace & Export
 - **QR platba** - generování QR kódů pro platby
-- **Pohoda XML** - export faktur do účetního systému
+- **Pohoda XML** - export faktur
 - **Nodemailer** / **Resend** - rozesílka emailů
+- **Redis** pro caching
 
 ---
 
@@ -55,89 +79,139 @@ npm run build
 # Spuštění produkce
 npm start
 
+# Linting
+npm run lint
+
 # Prisma příkazy
-npx prisma generate      # Generování klienta
+npm run db:generate      # Generování klienta (prisma generate)
+npm run db:push          # Push schema bez migrací (prisma db push)
+npm run db:migrate       # Deploy migrací (prisma migrate deploy)
+npm run db:seed          # Seed databáze (tsx prisma/seed.ts)
+
+# Alternativně přímo
+npx prisma generate
 npx prisma migrate dev   # Vývojové migrace
 npx prisma studio        # DB GUI
-npx prisma db push       # Push schema bez migrací
-
-# Linting a formátování
-npm run lint
-npm run lint:fix
-
-# Testy
-npm run test
-npm run test:watch
 ```
 
 ---
 
-## Struktura projektu
+## Struktura projektu (aktuální stav)
 
 ```
 /app
-├── (auth)/                         # Autentizace
-│   ├── login/page.tsx
-│   └── logout/page.tsx
+├── (auth)/                         # Autentizace ✅
+│   └── login/
+│       ├── page.tsx
+│       └── login-form.tsx
 │
-├── (admin)/                        # Admin sekce (role: admin)
+├── (admin)/                        # Admin sekce ✅
 │   ├── layout.tsx
-│   ├── dashboard/page.tsx
-│   ├── clients/                    # Správa klientů platformy
-│   ├── import/                     # Import dat
-│   └── settings/                   # Globální nastavení
+│   └── admin/
+│       ├── page.tsx                # Admin dashboard
+│       └── clients/                # Správa klientů
+│           ├── page.tsx            # Seznam klientů
+│           ├── new/page.tsx        # Nový klient
+│           ├── [id]/page.tsx       # Detail klienta
+│           ├── [id]/delete-button.tsx
+│           └── client-form.tsx
 │
-├── (client)/                       # Klientská sekce (role: client)
+├── (client)/                       # Klientská sekce ✅
 │   ├── layout.tsx
-│   ├── dashboard/page.tsx
-│   ├── revenue/                    # Modul obraty
-│   ├── inventory/                  # Modul sklad
-│   ├── leads/                      # Modul leads
-│   └── telephony/                  # Modul telefonie
-│       ├── customers/              # Správa zákazníků a čísel
-│       ├── billing/                # Vyúčtování
-│       ├── invoices/               # Faktury
-│       └── payments/               # Platby a účetnictví
+│   └── dashboard/page.tsx          # Klientský dashboard
 │
 ├── api/
-│   ├── auth/[...nextauth]/route.ts
-│   ├── admin/                      # Admin API
-│   ├── client/                     # Klientské API
-│   ├── webhooks/                   # Webhook příjem (auth v header)
-│   └── health/route.ts             # Health check endpoint
+│   ├── auth/[...nextauth]/route.ts # Auth API ✅
+│   └── admin/
+│       └── clients/
+│           ├── route.ts            # GET, POST ✅
+│           └── [id]/route.ts       # GET, PUT, DELETE ✅
 │
-├── components/
-│   ├── ui/                         # shadcn komponenty
-│   ├── charts/                     # Grafové komponenty
-│   ├── tables/                     # Tabulkové komponenty
-│   ├── import/                     # Import komponenty
-│   ├── invoices/                   # Fakturační komponenty
-│   └── layout/                     # Layout komponenty
+├── globals.css
+├── layout.tsx                      # Root layout
+├── page.tsx                        # Redirect dle role
+└── favicon.ico
+
+/components
+├── layout/
+│   └── sidebar.tsx                 # Navigační sidebar ✅
+├── providers.tsx                   # SessionProvider ✅
+└── ui/                             # shadcn komponenty ✅
+    ├── badge.tsx
+    ├── button.tsx
+    ├── card.tsx
+    ├── input.tsx
+    └── label.tsx
+
+/lib
+├── auth.ts                         # NextAuth konfigurace ✅
+├── db.ts                           # Prisma client ✅
+├── session.ts                      # Session helper
+├── utils.ts                        # cn() utility ✅
+└── validators/
+    └── client.ts                   # Zod schémata pro klienty ✅
+
+/prisma
+├── schema.prisma                   # Kompletní DB schema ✅
+└── seed.ts                         # Database seeding ✅
+
+/types
+└── next-auth.d.ts                  # Type extensions pro NextAuth ✅
+
+/                                   # Root
+├── middleware.ts                   # Auth middleware ✅
+├── deploy.sh                       # Deployment script ✅
+├── ecosystem.config.js             # PM2 konfigurace ✅
+├── .env.example
+└── .env.production.example
+```
+
+### Plánovaná struktura (k implementaci)
+
+```
+/app
+├── (admin)/
+│   └── admin/
+│       ├── import/                 # Import dat (TODO)
+│       └── settings/               # Globální nastavení (TODO)
 │
-├── lib/
-│   ├── db.ts                       # Prisma client
-│   ├── auth.ts                     # Auth konfigurace
-│   ├── utils.ts
-│   ├── qr-payment.ts               # Generování QR plateb
-│   ├── pohoda-export.ts            # Export do Pohoda XML
-│   ├── email/                      # Email service
-│   │   ├── templates/              # Email šablony
-│   │   └── sender.ts               # Odesílání s rate limiting
-│   └── validators/                 # Zod schémata
+├── (client)/
+│   ├── revenue/                    # Modul obraty (TODO)
+│   ├── inventory/                  # Modul sklad (TODO)
+│   ├── leads/                      # Modul leads (TODO)
+│   └── telephony/                  # Modul telefonie (TODO)
+│       ├── customers/
+│       ├── billing/
+│       ├── invoices/
+│       └── payments/
 │
-├── hooks/
-│   ├── useClientData.ts
-│   ├── useExport.ts
-│   └── useInvoice.ts
-│
-├── types/
-│   ├── index.ts
-│   └── enums.ts                    # Všechny enumy na jednom místě
-│
-└── jobs/                           # Background jobs (cron)
-    ├── xml-feed-sync.ts
-    ├── invoice-sender.ts           # Rozesílka faktur
-    └── payment-import.ts           # Import plateb z banky
+├── api/
+│   ├── client/                     # Klientské API (TODO)
+│   ├── webhooks/                   # Webhook příjem (TODO)
+│   └── health/route.ts             # Health check (TODO)
+
+/components
+├── charts/                         # Grafové komponenty (TODO)
+├── tables/                         # Tabulkové komponenty (TODO)
+├── import/                         # Import komponenty (TODO)
+└── invoices/                       # Fakturační komponenty (TODO)
+
+/lib
+├── qr-payment.ts                   # Generování QR plateb (TODO)
+├── pohoda-export.ts                # Export do Pohoda XML (TODO)
+└── email/                          # Email service (TODO)
+    ├── templates/
+    └── sender.ts
+
+/hooks                              # React hooks (TODO)
+├── useClientData.ts
+├── useExport.ts
+└── useInvoice.ts
+
+/jobs                               # Background jobs (TODO)
+├── xml-feed-sync.ts
+├── invoice-sender.ts
+└── payment-import.ts
 ```
 
 ---
@@ -989,24 +1063,86 @@ GET  /api/client/telephony/payments/overpaid
 
 ---
 
+## Environment Setup
+
+### Požadavky
+- Node.js 20+
+- PostgreSQL 15+
+- npm nebo pnpm
+
+### Lokální vývoj
+
+1. **Klonování a instalace:**
+```bash
+git clone <repo>
+cd NB
+npm install
+```
+
+2. **Konfigurace prostředí:**
+```bash
+cp .env.example .env
+# Upravit DATABASE_URL a NEXTAUTH_SECRET
+```
+
+3. **Databáze:**
+```bash
+npm run db:generate    # Generování Prisma klienta
+npm run db:push        # Vytvoření tabulek
+npm run db:seed        # Vytvoření admin uživatele
+```
+
+4. **Spuštění:**
+```bash
+npm run dev
+```
+
+### Environment Variables
+
+```env
+# Povinné
+DATABASE_URL="postgresql://user:password@localhost:5432/klientska_platforma?schema=public"
+NEXTAUTH_SECRET="your-secret-key-change-in-production"
+NEXTAUTH_URL="http://localhost:3000"
+
+# Pro seed (volitelné)
+ADMIN_EMAIL="admin@racek.digital"
+ADMIN_PASSWORD="admin123"
+```
+
+### Produkční deployment
+
+Projekt používá PM2 pro process management:
+
+```bash
+# Build a deploy
+./deploy.sh
+
+# PM2 příkazy
+pm2 start ecosystem.config.js
+pm2 restart nb-platform
+pm2 logs nb-platform
+```
+
+---
+
 ## Postup vývoje
 
-### Fáze 1: Základy
-1. Setup Next.js projektu
-2. Konfigurace Prisma + databáze
-3. Implementace autentizace
-4. Základní layout (admin/client)
-5. CRUD pro klienty
+### Fáze 1: Základy ✅ DOKONČENO
+1. ✅ Setup Next.js projektu
+2. ✅ Konfigurace Prisma + databáze
+3. ✅ Implementace autentizace
+4. ✅ Základní layout (admin/client)
+5. ✅ CRUD pro klienty
 
-### Fáze 2: Modul Obraty
-1. DB schema (bez počítaných polí!)
-2. Import CSV/XLSX
-3. API endpointy s dynamickým výpočtem
-4. Dashboard s grafy
-5. Tabulky s exportem
+### Fáze 2: Modul Obraty (DALŠÍ)
+1. Import CSV/XLSX - přidat Papa Parse, xlsx
+2. API endpointy s dynamickým výpočtem profit/pno/aov
+3. Dashboard s grafy (Recharts)
+4. Tabulky s exportem (TanStack Table)
 
 ### Fáze 3: Modul Sklad
-1. XML feed parser
+1. XML feed parser (fast-xml-parser)
 2. Automatický sync (pouze změny!)
 3. UI pro prohlížení
 
@@ -1031,15 +1167,109 @@ GET  /api/client/telephony/payments/overpaid
 
 ---
 
+## Klíčové implementační vzory
+
+### Autentizace v API Routes
+
+```typescript
+import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  const session = await auth();
+
+  // Kontrola přihlášení
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Kontrola role (pro admin endpointy)
+  if (session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Pro klientská data vždy používat clientId
+  const data = await prisma.someModel.findMany({
+    where: {
+      clientId: session.user.clientId, // POVINNÉ!
+      deletedAt: null,                  // Soft delete filter
+    }
+  });
+
+  return NextResponse.json({ data });
+}
+```
+
+### Validace vstupů pomocí Zod
+
+```typescript
+import { z } from "zod";
+
+// Definice schématu
+export const createItemSchema = z.object({
+  name: z.string().min(2).max(100),
+  value: z.number().positive(),
+});
+
+// V API route
+const body = await req.json();
+const validated = createItemSchema.parse(body); // Throws on invalid
+```
+
+### Server Components s auth check
+
+```typescript
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
+
+export default async function ProtectedPage() {
+  const session = await auth();
+
+  if (!session) {
+    redirect("/login");
+  }
+
+  if (session.user.role !== "ADMIN") {
+    redirect("/dashboard");
+  }
+
+  return <div>Protected content</div>;
+}
+```
+
+### Sidebar navigace
+
+```typescript
+// Používat definované nav items z components/layout/sidebar.tsx
+import { adminNavItems, clientNavItems } from "@/components/layout/sidebar";
+
+// Admin: /admin, /admin/clients, /admin/import, /admin/settings
+// Client: /dashboard, /revenue, /inventory, /leads, /telephony
+```
+
+---
+
 ## Důležité poznámky pro AI asistenty
 
+### Bezpečnostní pravidla (KRITICKÉ)
 1. **Bezpečnost dat je priorita #1** - Nikdy nevytvářej dotazy bez clientId filtru
-2. **Validuj všechny vstupy** - Používej Zod schémata
-3. **Používej TypeScript striktně** - Žádné `any`, žádné `@ts-ignore`
-4. **Soft deletes** - Nikdy přímo nemazat, vždy nastavit deletedAt
-5. **Audit log** - Logovat všechny změny citlivých dat
-6. **Nepočítat v DB** - profit, pno, aov počítat dynamicky
-7. **Stock changes** - Ukládat pouze změny, ne každý sync
-8. **Webhook auth** - Token v header, nikdy v URL
-9. **Email rate limiting** - Respektovat limity pro spam resistance
-10. **Enumy** - Používat Prisma enumy, ne stringy
+2. **Soft deletes** - Nikdy přímo nemazat, vždy nastavit deletedAt a filtrovat `deletedAt: null`
+3. **Webhook auth** - Token v header (`Authorization: Bearer`), nikdy v URL
+4. **Audit log** - Logovat všechny změny citlivých dat
+
+### Kodovací standardy
+5. **Validuj všechny vstupy** - Používej Zod schémata (už existují v lib/validators/)
+6. **Používej TypeScript striktně** - Žádné `any`, žádné `@ts-ignore`
+7. **Enumy** - Používat Prisma enumy z `@prisma/client`, ne stringy
+
+### Business pravidla
+8. **Nepočítat v DB** - profit, pno, aov počítat dynamicky v aplikaci
+9. **Stock changes** - Ukládat pouze změny (diff), ne každý sync
+10. **Email rate limiting** - Max 50 emailů/hodinu, 30s mezi emaily stejnému příjemci
+
+### Existující utilities
+- `lib/auth.ts` - auth(), signIn(), signOut() z NextAuth
+- `lib/db.ts` - prisma client (singleton)
+- `lib/utils.ts` - cn() pro className merging
+- `lib/validators/client.ts` - Zod schémata pro klienty
+- `components/ui/*` - shadcn komponenty (Button, Card, Badge, Input, Label)
