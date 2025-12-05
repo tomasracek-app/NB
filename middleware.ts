@@ -18,7 +18,7 @@ export async function middleware(req: NextRequest) {
   const publicPaths = ["/login", "/api/auth"];
   const isPublicPath = publicPaths.some((path) =>
     nextUrl.pathname.startsWith(path)
-  );
+  ) || nextUrl.pathname === "/";
 
   // Pokud je veřejná cesta, povolit přístup
   if (isPublicPath) {
@@ -44,14 +44,6 @@ export async function middleware(req: NextRequest) {
     if (userRole !== "ADMIN") {
       return NextResponse.redirect(new URL("/dashboard", nextUrl));
     }
-  }
-
-  // Root path - přesměrovat podle role
-  if (nextUrl.pathname === "/") {
-    if (userRole === "ADMIN") {
-      return NextResponse.redirect(new URL("/admin", nextUrl));
-    }
-    return NextResponse.redirect(new URL("/dashboard", nextUrl));
   }
 
   return NextResponse.next();
